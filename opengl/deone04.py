@@ -72,7 +72,7 @@ def init():
     glEnable(GL_TEXTURE_2D)           # 开启纹理映射
     global ground_texture
     # 加载地面纹理（请确保 ground.jpg 存在）
-    ground_texture = load_texture("ground.jpg")
+    ground_texture = load_texture("opengl/ground.jpg")
     if ground_texture is None:
         print("纹理加载失败，程序无法继续运行。")
         sys.exit()

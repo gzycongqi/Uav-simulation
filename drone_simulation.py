@@ -5,7 +5,25 @@ os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import pygame
 import math
 import random  # 导入随机模块
+import threading
 
+#prepare the sensor data
+def parse_beam_search_solution(file_path):
+    with open(file_path, 'r') as file:
+        lines = file.readlines()
+
+    # Parse coordinates
+    coordinates = []
+    for line in lines[1:51]:  # Assuming coordinates are in lines 2 to 51
+        x, y = map(float, line.strip().split(','))
+        coordinates.append((x, y))
+
+    # Parse indices
+    indices = []
+    for line in lines[52:]:  # Assuming indices start from line 53
+        indices.append(int(line.strip()))
+
+    return coordinates, indices
 
 class Drone:
     def __init__(self, image_path, initial_position, step=0.5):
@@ -17,7 +35,7 @@ class Drone:
         self.path = [initial_position]
         self.data = 0  # 无人机的数据属性
 
-    def update_position(self, target_coords, target_index):
+    def update_position(self, target_coords, target_index, sensors):
         target_x, target_y = target_coords[target_index]
         dx = target_x - self.x
         dy = target_y - self.y
@@ -27,6 +45,8 @@ class Drone:
             # 到达目标点，更新位置并切换到下一个目标
             self.x, self.y = target_x, target_y
             self.path.append((self.x, self.y))
+            # 向传感器发送随机数据
+            sensors[target_index].data += random.randint(1, 10)
             target_index = (target_index + 1) % len(target_coords)
         else:
             # 按比例更新位置
@@ -46,13 +66,12 @@ class Drone:
 
 
 class Sensor:
-    def __init__(self, image_path, scale_factor=0.5, sensor_data=None):
+    def __init__(self, image_path, scale_factor=0.3):
         self.image = pygame.image.load(image_path)
         self.image = pygame.transform.scale(self.image, (int(self.image.get_width() * scale_factor), int(self.image.get_height() * scale_factor)))
         self.image_rect = self.image.get_rect()
-        # 生成随机的数据，如果没有传入数据，则随机生成一个0-100之间的整数
-        self.data = sensor_data if sensor_data is not None else random.randint(0, 100)
-
+        # 初始化数据为0
+        self.data = 0
 
     def draw(self, screen, position):
         self.image_rect.center = position
@@ -73,7 +92,7 @@ class DataCenter:
 
 
 class DroneSimulation:
-    def __init__(self, screen_width=2000, screen_height=1000, step=0.5, num_sensors=5):
+    def __init__(self, screen_width=1200, screen_height=1000, step=0.5, num_sensors=50):
         # 初始化 Pygame
         pygame.init()
 
@@ -88,7 +107,7 @@ class DroneSimulation:
         self.screen = pygame.display.set_mode((self.screen_width, self.screen_height + 100))
 
         # 加载背景
-        self.background = pygame.image.load('ground.jpg')
+        self.background = pygame.image.load('forest.png')
         self.background = pygame.transform.scale(self.background, (self.screen_width, self.screen_height))
 
         # 创建无人机实例
@@ -101,16 +120,47 @@ class DroneSimulation:
         self.sensors = []
         self.target_coords = []
         for i in range(num_sensors):
-            sensor_data = random.randint(0, 100)  # 每个传感器的数据是0-100之间的随机数
-            self.sensors.append(Sensor('sensor.png', scale_factor=0.5, sensor_data=sensor_data))
+            self.sensors.append(Sensor('sensor.png', scale_factor=0.5))
             # 随机生成目标坐标
-            self.target_coords.append([random.randint(100, screen_width - 100), random.randint(100, screen_height - 100)])
+            # self.target_coords.append([random.randint(100, screen_width - 100), random.randint(100, screen_height - 100)])
+
+        # print("Target Coordinates:", self.target_coords)
+
+        file_path = 'beam_search_solution.txt'
+        coordinates, indices = parse_beam_search_solution(file_path)
+        print("indice:",indices)
+        scale_factor = 800  # Define your scale factor here
+        reordered_coordinates = [list(scale_factor * x for x in coordinates[i]) for i in indices]
+        self.target_coords = reordered_coordinates
+        min_distance = float('inf')
+        min_index=-1
+        for i, sensor in enumerate(self.sensors):
+                dx = self.data_center.x - self.target_coords[i][0]
+                dy = self.data_center.y - self.target_coords[i][1]
+                distance = math.sqrt(dx**2 + dy**2)
+                if distance < min_distance:
+                    min_distance = distance
+                    min_index = i
+
+        self.target_coords=self.target_coords[min_index:]+self.target_coords[:min_index]
+
+
+
 
         # 初始化目标索引
         self.target_index = 0
 
         # 字体设置
         self.font = pygame.font.SysFont('Arial', 24)
+
+    def calculate_distances(self):
+        while True:
+            for i, sensor in enumerate(self.sensors):
+                dx = self.drone.x - self.target_coords[i][0]
+                dy = self.drone.y - self.target_coords[i][1]
+                distance = math.sqrt(dx**2 + dy**2)
+                # print(f"Distance to Sensor {i + 1}: {distance:.2f}")
+            pygame.time.wait(1000)  # Wait for 1 second before recalculating
 
     def draw(self):
         # 绘制背景
@@ -164,6 +214,13 @@ class DroneSimulation:
             y_offset += 30
 
     def run(self):
+        
+        print(self.target_coords)
+        # Start the distance calculation thread
+        distance_thread = threading.Thread(target=self.calculate_distances)
+        distance_thread.daemon = True  # Daemonize thread to exit when main program exits
+        distance_thread.start()
+
         # 游戏循环
         running = True
         while running:
@@ -172,8 +229,8 @@ class DroneSimulation:
                 if event.type == pygame.QUIT:
                     running = False
 
-            # 更新无人机位置
-            self.target_index = self.drone.update_position(self.target_coords, self.target_index)
+            # 更新无人机位置并传递传感器列表
+            self.target_index = self.drone.update_position(self.target_coords, self.target_index, self.sensors)
 
             # 绘制所有内容
             self.draw()
@@ -185,5 +242,5 @@ class DroneSimulation:
 
 
 if __name__ == "__main__":
-    simulation = DroneSimulation(num_sensors=5)  # 设置传感器的数量
+    simulation = DroneSimulation(num_sensors=50)  # 设置传感器的数量
     simulation.run()
