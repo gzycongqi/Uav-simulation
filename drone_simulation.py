@@ -25,6 +25,11 @@ def parse_beam_search_solution(file_path):
 
     return coordinates, indices
 
+class Tree:
+    def __init__(self):
+        self.snow=0
+
+
 class Drone:
     def __init__(self, image_path, initial_position, step=0.5):
         self.image = pygame.image.load(image_path)
@@ -41,13 +46,15 @@ class Drone:
         dy = target_y - self.y
         distance = math.sqrt(dx**2 + dy**2)
 
-        if distance < self.step:
+        if distance <= self.step:
             # 到达目标点，更新位置并切换到下一个目标
             self.x, self.y = target_x, target_y
             self.path.append((self.x, self.y))
             # 向传感器发送随机数据
             sensors[target_index].data += random.randint(1, 10)
             target_index = (target_index + 1) % len(target_coords)
+            if target_index == 0:
+                target_index=-1
         else:
             # 按比例更新位置
             direction_x = dx / distance
@@ -237,6 +244,9 @@ class DroneSimulation:
 
             # 刷新显示
             pygame.display.flip()
+
+            if(self.target_index==-1):
+                break
 
         pygame.quit()
 
